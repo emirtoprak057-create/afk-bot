@@ -1,103 +1,13 @@
-require('dotenv').config();
-const { Client, GatewayIntentBits } = require('discord.js');
-const {
-  joinVoiceChannel,
-  getVoiceConnection,
-  VoiceConnectionStatus,
-  entersState,
-} = require('@discordjs/voice');
-
-// ====== AYARLAR (.env dosyasından okunur) ======
-const TOKEN = process.env.DISCORD_TOKEN;
-const GUILD_ID = process.env.GUILD_ID;     // sunucu (server) ID
-const CHANNEL_ID = process.env.CHANNEL_ID; // bağlanılacak ses kanalı ID
-
-if (!TOKEN || !GUILD_ID || !CHANNEL_ID) {
-  console.error('HATA: DISCORD_TOKEN, GUILD_ID, CHANNEL_ID tanımlı olmalı (.env dosyasına yaz).');
-  process.exit(1);
-}
-
-const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildVoiceStates,
-  ],
-});
-
-let reconnecting = false;
-
-async function connectToVoice() {
-  try {
-    const guild = await client.guilds.fetch(GUILD_ID);
-    const channel = await guild.channels.fetch(CHANNEL_ID);
-
-    if (!channel || !channel.isVoiceBased()) {
-      console.error('Ses kanalı bulunamadı veya bu bir ses kanalı değil. CHANNEL_ID kontrol et.');
-      return;
-    }
-
-    const connection = joinVoiceChannel({
-      channelId: channel.id,
-      guildId: guild.id,
-      adapterCreator: guild.voiceAdapterCreator,
-      selfDeaf: true,
-      selfMute: true,
-    });
-
-    console.log(`✅ Ses kanalına bağlandı: ${channel.name}`);
-
-    connection.on(VoiceConnectionStatus.Disconnected, async () => {
-      console.log('⚠️ Sesten düştü, tekrar bağlanmaya çalışılıyor...');
-      try {
-        await Promise.race([
-          entersState(connection, VoiceConnectionStatus.Signalling, 5_000),
-          entersState(connection, VoiceConnectionStatus.Connecting, 5_000),
-        ]);
-      } catch (err) {
-        connection.destroy();
-        scheduleReconnect();
-      }
-    });
-
-    connection.on(VoiceConnectionStatus.Destroyed, () => {
-      console.log('🔌 Bağlantı tamamen koptu, yeniden katılma planlanıyor...');
-      scheduleReconnect();
-    });
-
-    connection.on('error', (err) => {
-      console.error('Voice connection hatası:', err);
-    });
-
-  } catch (err) {
-    console.error('Ses kanalına bağlanırken hata:', err);
-    scheduleReconnect();
+{
+  "name": "afk-voice-bot",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": { "start": "node index.js" },
+  "engines": { "node": ">=18.0.0" },
+  "dependencies": {
+    "discord.js": "^14.16.3",
+    "@discordjs/voice": "^0.18.0",
+    "dotenv": "^16.4.5",
+    "libsodium-wrappers": "^0.7.15"
   }
 }
-
-function scheduleReconnect() {
-  if (reconnecting) return;
-  reconnecting = true;
-  setTimeout(() => {
-    reconnecting = false;
-    connectToVoice();
-  }, 5_000);
-}
-
-client.once('ready', () => {
-  console.log(`🤖 Bot giriş yaptı: ${client.user.tag}`);
-  connectToVoice();
-});
-
-client.on('voiceStateUpdate', (oldState, newState) => {
-  if (oldState.member?.id === client.user.id && !newState.channelId) {
-    console.log('⚠️ Bot ses kanalından çıkarıldı, tekrar bağlanılıyor...');
-    const existing = getVoiceConnection(GUILD_ID);
-    if (existing) existing.destroy();
-    scheduleReconnect();
-  }
-});
-
-process.on('unhandledRejection', (err) => console.error('Unhandled rejection:', err));
-process.on('uncaughtException', (err) => console.error('Uncaught exception:', err));
-
-client.login(TOKEN);
